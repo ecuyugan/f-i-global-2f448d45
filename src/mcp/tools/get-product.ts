@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { StorefrontClient } from "../../shopify/client.js";
 import { GET_PRODUCT } from "../../shopify/queries.js";
-import type { Product } from "@fuselayer/shopify-types";
+import type { Product } from "../../types/index.js";
 
 // ── Inlined helpers from shopify/types.ts ────────────────────────────────────
 
