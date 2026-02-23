@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { StorefrontClient } from "../../shopify/client.js";
 import { CART_LINES_UPDATE, CART_LINES_REMOVE } from "../../shopify/mutations.js";
-import { cartAdd, parseCart, parseUserErrors, resolveCartId } from "./cart-add.js";
+import { cartAdd, parseCart, parseUserErrors, resolveCartId, isRedundantCartView } from "./cart-add.js";
 
 // ── Inlined cartView ──────────────────────────────────────────────────────────
 
@@ -59,7 +59,12 @@ async function cartView(
     };
   }
 
-  const data = await client.request<Record<string, any>>(CART_QUERY, { cartId });
+  let data: Record<string, any>;
+  try {
+    data = await client.request<Record<string, any>>(CART_QUERY, { cartId });
+  } catch {
+    return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now." };
+  }
 
   if (!data.cart) {
     return {
@@ -90,10 +95,15 @@ async function cartUpdate(
     };
   }
 
-  const data = await client.request<Record<string, any>>(CART_LINES_UPDATE, {
-    cartId,
-    lines: [{ id: input.lineId, quantity: input.quantity }],
-  });
+  let data: Record<string, any>;
+  try {
+    data = await client.request<Record<string, any>>(CART_LINES_UPDATE, {
+      cartId,
+      lines: [{ id: input.lineId, quantity: input.quantity }],
+    });
+  } catch {
+    return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now." };
+  }
 
   const errors = parseUserErrors(data.cartLinesUpdate?.userErrors);
   if (errors.length > 0) {
@@ -125,10 +135,15 @@ async function cartRemove(
     };
   }
 
-  const data = await client.request<Record<string, any>>(CART_LINES_REMOVE, {
-    cartId,
-    lineIds: input.lineIds,
-  });
+  let data: Record<string, any>;
+  try {
+    data = await client.request<Record<string, any>>(CART_LINES_REMOVE, {
+      cartId,
+      lineIds: input.lineIds,
+    });
+  } catch {
+    return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now." };
+  }
 
   const errors = parseUserErrors(data.cartLinesRemove?.userErrors);
   if (errors.length > 0) {
@@ -200,6 +215,9 @@ export async function manageCart(
     }
 
     case "view": {
+      if (isRedundantCartView(parsed.conversationId)) {
+        return { source: "storefront_api" as const, cart: null, suppressed: true };
+      }
       return cartView(client, {
         cartId: parsed.cartId,
         conversationId: parsed.conversationId,
