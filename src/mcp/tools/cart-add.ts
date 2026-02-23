@@ -64,6 +64,43 @@ export function getConversationId(sseSessionId: string): string {
 /** Clean up mapping when SSE session closes. */
 export function clearSessionMapping(sseSessionId: string): void {
   sessionMapping.delete(sseSessionId);
+  clearTurnTracker(sseSessionId);
+}
+
+// ── Turn tracker ──────────────────────────────────────────────────────────────
+// Tracks which tools have been called within the current conversational turn
+// (time window) per session. Used to suppress redundant manage_cart:view calls.
+
+const TURN_WINDOW_MS = 3000;
+const turnTracker = new Map<string, { tools: Set<string>; timer: ReturnType<typeof setTimeout> }>();
+
+export function recordTurnTool(sseSessionId: string, toolName: string): void {
+  const existing = turnTracker.get(sseSessionId);
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.tools.add(toolName);
+    existing.timer = setTimeout(() => turnTracker.delete(sseSessionId), TURN_WINDOW_MS);
+  } else {
+    const timer = setTimeout(() => turnTracker.delete(sseSessionId), TURN_WINDOW_MS);
+    turnTracker.set(sseSessionId, { tools: new Set([toolName]), timer });
+  }
+}
+
+export function isRedundantCartView(sseSessionId: string): boolean {
+  const tracker = turnTracker.get(sseSessionId);
+  if (!tracker) return false;
+  for (const name of tracker.tools) {
+    if (name !== "manage_cart:view") return true;
+  }
+  return false;
+}
+
+function clearTurnTracker(sseSessionId: string): void {
+  const existing = turnTracker.get(sseSessionId);
+  if (existing) {
+    clearTimeout(existing.timer);
+    turnTracker.delete(sseSessionId);
+  }
 }
 
 const CART_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -150,10 +187,15 @@ export async function cartAdd(
   const existingCartId = resolveCartId(parsed);
 
   if (existingCartId) {
-    const data = await client.request<Record<string, any>>(CART_LINES_ADD, {
-      cartId: existingCartId,
-      lines: [{ merchandiseId: parsed.variantId, quantity: parsed.quantity }],
-    });
+    let data: Record<string, any>;
+    try {
+      data = await client.request<Record<string, any>>(CART_LINES_ADD, {
+        cartId: existingCartId,
+        lines: [{ merchandiseId: parsed.variantId, quantity: parsed.quantity }],
+      });
+    } catch {
+      return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now. Please try again." };
+    }
 
     const errors = parseUserErrors(data.cartLinesAdd?.userErrors);
     if (errors.length > 0) {
@@ -174,11 +216,16 @@ async function createNewCart(
   client: StorefrontClient,
   parsed: z.infer<typeof cartAddInput>
 ) {
-  const data = await client.request<Record<string, any>>(CART_CREATE, {
-    input: {
-      lines: [{ merchandiseId: parsed.variantId, quantity: parsed.quantity }],
-    },
-  });
+  let data: Record<string, any>;
+  try {
+    data = await client.request<Record<string, any>>(CART_CREATE, {
+      input: {
+        lines: [{ merchandiseId: parsed.variantId, quantity: parsed.quantity }],
+      },
+    });
+  } catch {
+    return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now. Please try again." };
+  }
 
   const errors = parseUserErrors(data.cartCreate?.userErrors);
   if (errors.length > 0) {
