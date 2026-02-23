@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { StorefrontClient } from "../../shopify/client.js";
 import { GET_PRODUCT } from "../../shopify/queries.js";
-import type { Product } from "../../types/index.js";
+import type { Product } from "@fuselayer/shopify-types";
 
 // ── Inlined helpers from shopify/types.ts ────────────────────────────────────
 
@@ -100,9 +100,12 @@ export async function getProduct(
   input: z.infer<typeof getProductInput>
 ) {
   const parsed = getProductInput.parse(input);
-  const data = await client.request<Record<string, any>>(GET_PRODUCT, {
-    handle: parsed.handle,
-  });
+  let data: Record<string, any>;
+  try {
+    data = await client.request<Record<string, any>>(GET_PRODUCT, { handle: parsed.handle });
+  } catch {
+    return { source: "storefront_api" as const, error: true, message: "Unable to reach the store right now." };
+  }
 
   if (!data.product) {
     return {
