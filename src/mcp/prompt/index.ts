@@ -1,4 +1,4 @@
-import type { StoreConfig } from "@fuselayer/shopify-types";
+import type { StoreConfig } from "../../types/index.js";
 
 // ── Embedded templates ────────────────────────────────────────────────────────
 
