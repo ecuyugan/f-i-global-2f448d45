@@ -1,10 +1,10 @@
 import { FastifyInstance } from "fastify";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { StoreConfig } from "../types/index.js";
+import type { StoreConfig } from "../../types/index.js";
 import { createMCPServer } from "../mcp/server.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { brandKnowledgeStore } from "../index.js";
-import { setOpenAiSession, clearSessionMapping } from "../mcp/tools/cart-add.js";
+import { setOpenAiSession, clearSessionMapping, recordTurnTool } from "../mcp/tools/cart-add.js";
 
 // Active store config — set once at startup via seedStoreConfig().
 let activeConfig: StoreConfig | undefined;
@@ -63,6 +63,8 @@ export async function mcpRoutes(app: FastifyInstance) {
 
       transport.onerror = (err) => {
         app.log.error({ err, sessionId }, "SSE transport error");
+        sessions.delete(sessionId);
+        clearSessionMapping(sessionId);
       };
 
       // Type assertion needed: pnpm hoists two SDK versions (1.23.0 + 1.26.0)
@@ -108,6 +110,14 @@ export async function mcpRoutes(app: FastifyInstance) {
         if (openaiSession) {
           setOpenAiSession(sessionId, openaiSession);
         }
+      }
+
+      // Record tool calls for turn-level deduplication
+      if (body?.method === "tools/call" && body?.params?.name) {
+        const toolName = body.params.name as string;
+        const action = body.params.arguments?.action as string | undefined;
+        const key = action ? `${toolName}:${action}` : toolName;
+        recordTurnTool(sessionId, key);
       }
 
       await session.transport.handlePostMessage(request.raw as any, reply.raw, request.body);
