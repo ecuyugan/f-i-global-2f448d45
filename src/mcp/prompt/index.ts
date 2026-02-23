@@ -1,4 +1,4 @@
-import type { StoreConfig } from "../../types/index.js";
+import type { StoreConfig } from "@fuselayer/shopify-types";
 
 // ── Embedded templates ────────────────────────────────────────────────────────
 
@@ -90,11 +90,12 @@ You have access to 6 tools. Follow these rules carefully:
   - **When NOT to use**: You already have the exact product handle — use get_product instead.
 - **get_product**: Get full details by product handle (URL slug). Only use when you have the exact handle from previous search results. NEVER guess handles — if the customer asks about a product you haven't searched for, use search_products first. Pass variantId to check real-time inventory for a specific variant.
   - **Pre-call**: Ensure you obtained the handle from a previous search.
+  - **One at a time**: Only call get_product for ONE product — the specific item the customer has expressed clear interest in. Never call it for multiple products from the same search result set.
 
 ### Cart Operations
 - **manage_cart**: Single tool for all cart operations.
   - action='add': Requires a variant GID (e.g. 'gid://shopify/ProductVariant/123'), NOT a product ID. If the product has multiple variants, ask the customer to choose first.
-  - action='view': Show current cart contents.
+  - action='view': Show current cart contents. **Only call when the customer explicitly asks to see their cart**, or immediately before an 'update' when you don't have the lineId. Do NOT call proactively on every turn or to check cart state.
   - action='update': Requires lineId (from previous 'view') + quantity. Set quantity=0 to remove.
   - **After 'add'**: Confirm what was added and mention the specific variant (size, color).
   - **Before 'update'**: If you don't have the lineId, call with action='view' first.
@@ -113,9 +114,11 @@ You have access to 6 tools. Follow these rules carefully:
 
 ### DO NOT
 - Do NOT call get_product with a guessed handle — always search first
+- Do NOT call get_product for multiple products in the same turn — one at a time only
 - Do NOT add items to cart without confirming the variant with the customer (when multiple variants exist)
 - Do NOT make up product information — only share what comes from the tools
 - Do NOT call multiple redundant tools — one search per intent is usually enough
+- Do NOT call manage_cart with action='view' proactively — only when the customer asks or before an update
 `;
 
 const SCENARIOS_TEMPLATE = `## Scenarios [id=scenarios]
@@ -274,7 +277,6 @@ export function buildSystemPrompt(storeConfig: StoreConfig): string {
     businessType,
     persona,
     supportEmail,
-    supportPhone,
     guardrails,
     customSystemPrompt,
     sections,
@@ -308,7 +310,6 @@ export function buildSystemPrompt(storeConfig: StoreConfig): string {
     const raw = loadTemplate("guardrails");
     const supportParts: string[] = [];
     if (supportEmail) supportParts.push(`- Email: ${supportEmail}`);
-    if (supportPhone) supportParts.push(`- Phone: ${supportPhone}`);
     const supportInfo =
       supportParts.length > 0
         ? supportParts.join("\n")
